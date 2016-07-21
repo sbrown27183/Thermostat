@@ -1,17 +1,21 @@
 #define CoolRelay   D4
 #define HeatRelay   D3
 #define FanRelay    D2
+#define ButtonUp    A0  //these are just placeholders until hardware actually has buttons
+#define ButtonDown  A1  //these are just placeholders until hardware actually has buttons
+#define Encoder1     A2  //these are just placeholders until hardware actually has buttons and knobs.
+#define Encoder2     A3  //these are just placeholders until hardware actually has buttons and knobs.
 
 double celsius;
 double fahrenheit;
 static int tmpAddress = 0b1001000;
 static int ResolutionBits = 12;
 int TempSum = 1;
-int i = 0;  //loop incrementer for actions that happen less frequently than once per loop
+//int i = 0;  //loop incrementer for actions that happen less frequently than once per loop
 
 struct statstruct
 {
-  float setpoint = 79; 
+  float setpoint = 79;
   float hysteresis = 1.5;
   //float offset; //for calibration if necessary
   float currentTemp;
@@ -28,45 +32,49 @@ statstruct state;
 
 
 Timer runout(20000,runout_done); //software timer to add fan runout after heating or cooling (efficiency!)
-
+ApplicationWatchdog wd(60000, System.reset); //application watchdog, resets 60 seconds after lack of response.
 
 
 void setup()
 {
-   
+   RGB.control(true);
    Particle.variable("fahrenheit",&fahrenheit, DOUBLE);
    Particle.variable("getstatus",status, STRING);
    Particle.variable("relaystatus",&relays, INT); //relay status
    Particle.function("setmode",setMode);
    Particle.function("settemp",setTemp);
-   
+
    EEPROM.get(0,state);
-   
-   RGB.control(true);
-   Wire.begin();
-   SetResolution();
-   pinMode(A0, INPUT);
+
+   Wire.begin();    //start i2c bus
+   SetResolution(); //initialize TMP101 sensor
+
+   pinMode(ButtonUp, INPUT);
+   pinMode(ButtonDown, INPUT);
+   pinMode(Encoder1, INPUT);
+   pinMode(Encoder2, INPUT);
+
    pinMode(CoolRelay, OUTPUT);
    pinMode(HeatRelay, OUTPUT);
    pinMode(FanRelay, OUTPUT);
+
    digitalWrite(FanRelay, HIGH); //turns off fan relay
    digitalWrite(CoolRelay, HIGH);
    digitalWrite(HeatRelay, HIGH);
-   
+
 }
 
 void loop()
 {
-    
+
     getTemperature();
     state.currentTemp = fahrenheit;
     if(state.mode != state.lastmode)
     {
-        relays = setrelay(0);  //no conflicting relay states
+        relays = setrelay(0);  //no conflicting relay states caused by mode changes
     }
     switch (state.mode)
     {
-        
         case 0:
             RGB.color(255,255,255);
             RGB.brightness(16);
@@ -82,22 +90,19 @@ void loop()
             }
             else if(state.currentTemp < (state.setpoint - state.hysteresis)) //cooler than the setpoint - hysteresis
             {
-                
                 RGB.brightness(25);
                 if(needsrunout)
                 {
                     runout_start();
                 }
-                //relays = setrelay(0); //fan only
             }
             break;
-            
+
         case 2: //heating mode
             RGB.color(255,0,0);
             if (state.currentTemp > (state.setpoint + state.hysteresis))//hotter than the setpoint + hysteresis
             {
                 RGB.brightness(25);
-                //relays = setrelay(0);
                 if(needsrunout)
                 {
                     runout_start();
@@ -115,10 +120,7 @@ void loop()
             RGB.brightness(128);
             relays = setrelay(1);
             break;
-           
     }
-    
-    
     if(state.lastmode != state.mode || state.setpoint != state.lastSetpoint)
     {
         RGB.color(255,255,0);
@@ -128,25 +130,18 @@ void loop()
        state.lastmode = state.mode;//remembers what mode it was in during the last loop (to prevent unpredictable behavior when stuck between hysteresis points.
        state.lastSetpoint = state.setpoint;
     }
-    //analogValue = analogRead(A0); //reading AD value on Pin A0 this is vestigal debug could possibly be an input for stuff
-    
-    
-   
     putstatus();
     Particle.publish("Statechange",status);
+    wd.checkin();
     delay(250);
-   
-        
-        
 }
-
 
 int setrelay(int relaystate)
 {
 switch(relaystate){
     case 0:
         digitalWrite(FanRelay, HIGH); //turns off everything
-        digitalWrite(HeatRelay, HIGH); 
+        digitalWrite(HeatRelay, HIGH);
         digitalWrite(CoolRelay, HIGH);
         return 0;
         break;
@@ -164,7 +159,7 @@ switch(relaystate){
         break;
     case 5:
         digitalWrite(FanRelay, LOW); //turns on Fan Relay
-        digitalWrite(CoolRelay, HIGH); 
+        digitalWrite(CoolRelay, HIGH);
         digitalWrite(HeatRelay, LOW);//turns on Heat Relay
         return 5;
         break;
@@ -188,9 +183,9 @@ void runout_done()
 
 void putstatus()
 {
-    
-   sprintf(status,"%i Relay:%i Setpoint:%.2f Temp:%.4f",state.mode, relays, state.setpoint, state.currentTemp); 
-   
+
+   sprintf(status,"%i Relay:%i Setpoint:%.2f Temp:%.4f",state.mode, relays, state.setpoint, state.currentTemp);
+
 }
 
 
@@ -224,25 +219,23 @@ int setMode(String command)
 
 
 void getTemperature(){
-    int TempSum = 1;
+  int TempSum;
   Wire.requestFrom(tmpAddress,2);
   byte MSB = Wire.read();
   byte LSB = Wire.read();
- 
   TempSum = ((MSB << 8) | LSB) >> 4;
- 
   celsius = TempSum*0.0625;
   fahrenheit = (1.8 * celsius) + 32;
 }
- 
-  
+
+
 void SetResolution(){
   //if (ResolutionBits < 9 || ResolutionBits > 12) exit;
   Wire.beginTransmission(tmpAddress);
   Wire.write(0x01); //addresses the configuration register
   Wire.write((ResolutionBits-9) << 5); //writes the resolution bits
   Wire.endTransmission();
- 
+
   Wire.beginTransmission(tmpAddress); //resets to reading the temperature
   Wire.write((byte)0x00);
   Wire.endTransmission();
