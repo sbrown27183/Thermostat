@@ -1,16 +1,16 @@
 #define CoolRelay   D4
 #define HeatRelay   D3
-#define FanRelay    D2
+#define FanRelay    D5
 #define ButtonUp    A0  //these are just placeholders until hardware actually has buttons
 #define ButtonDown  A1  //these are just placeholders until hardware actually has buttons
 #define Encoder1     A2  //these are just placeholders until hardware actually has buttons and knobs.
 #define Encoder2     A3  //these are just placeholders until hardware actually has buttons and knobs.
 
-double celsius;
-double fahrenheit;
+//double celsius;
+//double fahrenheit;
 static int tmpAddress = 0b1001000;
 static int ResolutionBits = 12;
-int TempSum = 1;
+//int TempSum = 1;
 //int i = 0;  //loop incrementer for actions that happen less frequently than once per loop
 
 struct statstruct
@@ -23,8 +23,9 @@ struct statstruct
   int lastmode;
 float lastSetpoint;
 };
-int needsrunout;
+
 int relays = 0;  //sum of : 0 = off, 1 = fan, 2 = cool 4 = heat  Valid states of 1, 3, 5
+int needsrunout;
 
 char status [60];
 String modestring;
@@ -38,7 +39,7 @@ ApplicationWatchdog wd(60000, System.reset); //application watchdog, resets 60 s
 void setup()
 {
    RGB.control(true);
-   Particle.variable("fahrenheit",&fahrenheit, DOUBLE);
+   //Particle.variable("fahrenheit",&fahrenheit, DOUBLE);
    Particle.variable("getstatus",status, STRING);
    Particle.variable("relaystatus",&relays, INT); //relay status
    Particle.function("setmode",setMode);
@@ -67,8 +68,7 @@ void setup()
 void loop()
 {
 
-    getTemperature();
-    state.currentTemp = fahrenheit;
+    state.currentTemp = getTemperature();
     if(state.mode != state.lastmode)
     {
         relays = setrelay(0);  //no conflicting relay states caused by mode changes
@@ -133,7 +133,7 @@ void loop()
     putstatus();
     Particle.publish("Statechange",status);
     wd.checkin();
-    delay(250);
+    delay(1000);
 }
 
 int setrelay(int relaystate)
@@ -218,7 +218,9 @@ int setMode(String command)
 }
 
 
-void getTemperature(){
+double getTemperature(){
+  double celsius;
+  double fahrenheit;
   int TempSum;
   Wire.requestFrom(tmpAddress,2);
   byte MSB = Wire.read();
@@ -226,6 +228,7 @@ void getTemperature(){
   TempSum = ((MSB << 8) | LSB) >> 4;
   celsius = TempSum*0.0625;
   fahrenheit = (1.8 * celsius) + 32;
+  return fahrenheit;
 }
 
 
