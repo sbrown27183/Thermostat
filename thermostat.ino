@@ -26,13 +26,14 @@ float lastSetpoint;
 
 int relays = 0;  //sum of : 0 = off, 1 = fan, 2 = cool 4 = heat  Valid states of 1, 3, 5
 int needsrunout;
-
+int relayblock =
 char status [60];
 String modestring;
 statstruct state;
 
 
 Timer runout(20000,runout_done); //software timer to add fan runout after heating or cooling (efficiency!)
+Timer relayblock(10000,relayunblock); //software timer to add relay block, cannot change relay state with less than 10 second delay.
 ApplicationWatchdog wd(60000, System.reset); //application watchdog, resets 60 seconds after lack of response.
 
 
@@ -59,9 +60,7 @@ void setup()
    pinMode(HeatRelay, OUTPUT);
    pinMode(FanRelay, OUTPUT);
 
-   digitalWrite(FanRelay, HIGH); //turns off fan relay
-   digitalWrite(CoolRelay, HIGH);
-   digitalWrite(HeatRelay, HIGH);
+  relays = setrelay(0); //start off
 
 }
 
@@ -138,36 +137,52 @@ void loop()
 
 int setrelay(int relaystate)
 {
+  if(relay_recent){
+    return -1;
+  }
 switch(relaystate){
     case 0:
         digitalWrite(FanRelay, HIGH); //turns off everything
         digitalWrite(HeatRelay, HIGH);
         digitalWrite(CoolRelay, HIGH);
+        relay_block();
         return 0;
         break;
     case 1:
         digitalWrite(FanRelay, LOW); //turn on fan
         digitalWrite(CoolRelay, HIGH);
         digitalWrite(HeatRelay, HIGH);
+        relay_block();
         return 1;
         break;
     case 3:
         digitalWrite(FanRelay, LOW); //turns on Fan Relay
         digitalWrite(CoolRelay, LOW); //turns on Cool Relay
         digitalWrite(HeatRelay, HIGH);
+        relay_block();
         return 3;
         break;
     case 5:
         digitalWrite(FanRelay, LOW); //turns on Fan Relay
         digitalWrite(CoolRelay, HIGH);
         digitalWrite(HeatRelay, LOW);//turns on Heat Relay
+        relay_block();
         return 5;
         break;
     default:
         return -1; //invalid argument
     }
 }
-
+void relay_block()
+{
+  relay_recent = 1;
+  relayblock.start();
+}
+void relayunblock()
+{
+  relay_recent = 0;
+  relayblock.stop();
+}
 void runout_start()
 {
     relays = setrelay(1);
